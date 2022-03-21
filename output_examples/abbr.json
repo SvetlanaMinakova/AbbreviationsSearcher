@@ -1,0 +1,41 @@
+{
+    "abbreviations": [
+        {
+            "short": "CNNs",
+            "file": "./input_examples/Introduction.tex",
+            "line": 3
+        },
+        {
+            "short": "MPSoCs",
+            "file": "./input_examples/Introduction.tex",
+            "line": 7
+        },
+        {
+            "short": "CPUs",
+            "long": "central processing units ",
+            "file": "./input_examples/Introduction.tex",
+            "line": 11
+        },
+        {
+            "short": "FPGAs",
+            "file": "./input_examples/Introduction.tex",
+            "line": 13
+        },
+        {
+            "short": "DL",
+            "long": "Deep Learning ",
+            "file": "./input_examples/Introduction.tex",
+            "line": 37
+        },
+        {
+            "short": "SDF",
+            "file": "./input_examples/Introduction.tex",
+            "line": 39
+        },
+        {
+            "short": "CSDF",
+            "file": "./input_examples/Introduction.tex",
+            "line": 39
+        }
+    ]
+}

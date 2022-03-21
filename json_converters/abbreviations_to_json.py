@@ -3,11 +3,12 @@ import os
 import Abbreviation
 
 
-def abbreviations_to_json(abbreviations: [Abbreviation], filepath: str):
+def abbreviations_to_json(abbreviations: [Abbreviation], filepath: str, verbose):
     """
     Convert a target edge platform (architecture) into a JSON File
     :param abbreviations: list of abbreviations
     :param filepath: path to target .json file
+    :param verbose: print details
     """
     json_abbreviations = []
     for abbreviation in abbreviations:
@@ -22,6 +23,9 @@ def abbreviations_to_json(abbreviations: [Abbreviation], filepath: str):
 
     abbreviations_as_dict = {"abbreviations": json_abbreviations}
     save_as_json(filepath, abbreviations_as_dict)
+
+    if verbose:
+        print("Abbreviations saved in", filepath)
 
 
 def save_as_json(abs_path, data_json, pretty_printing=True):

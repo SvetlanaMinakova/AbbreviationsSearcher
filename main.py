@@ -6,7 +6,7 @@ import re
 import copy
 
 # local imports
-from Abbreviation import Abbreviation
+from Abbreviation import Abbreviation, find_abbreviation_by_short_notice
 from json_converters.abbreviations_to_json import abbreviations_to_json
 from input_file_worker import get_input_file_paths
 
@@ -45,11 +45,7 @@ def main():
     try:
         input_file_paths = get_input_file_paths(input_path, [extension], verbose)
         abbreviations = find_abbreviations_in_files_list(input_file_paths, verbose)
-        abbreviations_to_json(abbreviations, output_path)
-        if verbose:
-            print("Total abbreviations found: ", len(abbreviations))
-            print("Short notices: ", [abbreviation.short for abbreviation in abbreviations])
-
+        abbreviations_to_json(abbreviations, output_path, verbose)
     except Exception as e:
         print("Abbreviations search error: " + str(e))
         traceback.print_tb(e.__traceback__)
@@ -66,8 +62,7 @@ def find_abbreviations_in_files_list(file_paths, verbose):
     for path in file_paths:
         file_abbreviations = find_abbreviations_in_file(path, verbose)
         for abbreviation in file_abbreviations:
-            if abbreviation not in abbreviations:
-                abbreviations.append(abbreviation)
+            add_or_replace_abbreviation(abbreviation, abbreviations)
     return abbreviations
 
 
@@ -90,13 +85,38 @@ def find_abbreviations_in_file(file_path, verbose):
             for line_abbreviation in line_abbreviations:
                 line_abbreviation.file = file_path
                 line_abbreviation.line = line_id
-                if line_abbreviation not in abbreviations:
-                    abbreviations.append(line_abbreviation)
+                add_or_replace_abbreviation(line_abbreviation, abbreviations)
         line_id += 1
     if verbose:
         if len(abbreviations) > 0:
-            print("   abbreviations found:", [str(abbreviation) for abbreviation in abbreviations])
+            print("  - abbreviations found (", len(abbreviations), "):", [str(abbreviation) for abbreviation in abbreviations])
+        else:
+            print("  - no abbreviations found")
     return abbreviations
+
+
+def add_or_replace_abbreviation(abbreviation, abbreviations):
+    """
+    Add abbreviation to the list or replace existing abbreviation in the list.
+    The abbreviation is added to the list, if the list does not yet contain
+     the abbreviation.
+    The abbreviation replaces another abbreviation in the list, if:
+        1) current abbreviation has long notice;
+        2) the list contains current abbreviation but without long notice
+    :param abbreviation: abbreviation
+    :param abbreviations: list of abbreviations
+    """
+    # add
+    if abbreviation not in abbreviations:
+        abbreviations.append(abbreviation)
+        return
+
+    # replace
+    if abbreviation.long is not None:
+        print("replace abbreviation")
+        saved_abbreviation = find_abbreviation_by_short_notice(abbreviation.short, abbreviations)
+        abbreviations.remove(saved_abbreviation)
+        abbreviations.append(abbreviation)
 
 
 def get_file_as_lines(file_path):
@@ -151,14 +171,10 @@ def find_long_notice(line: str, prev_line: str, short_notice: str):
     if short_notice_letters[-1] == "s":
         short_notice_letters.pop(-1)
 
-    print("short notice letters: ", short_notice_letters)
-
     # the long notice should be located before the abbreviation
     substring_to_search = line[:short_notice_pos]
     # also, sometimes (part of) the long notice can be located in the previous line
     substring_to_search = prev_line + substring_to_search
-
-    print("substring_to_search", substring_to_search)
     long_notice = search_substring_for_long_notice(substring_to_search, short_notice_letters)
 
     return long_notice
@@ -229,7 +245,6 @@ def search_substring_for_long_notice(substring: str, short_notice_letters: []):
 
 
 def form_long_notice_from_reversed_words_list(long_notice_words_reverse):
-    # print("long_notice_words_reverse", long_notice_words_reverse)
     long_notice = ""
     long_notice_words_reverse.reverse()
     for word in long_notice_words_reverse:

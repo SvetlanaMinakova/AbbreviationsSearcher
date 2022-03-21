@@ -19,3 +19,10 @@ class Abbreviation:
     def __str__(self):
         return "{" + self.short + "}"
 
+
+def find_abbreviation_by_short_notice(short_notice, abbreviations):
+    for abbreviation in abbreviations:
+        if abbreviation.short == short_notice:
+            return abbreviation
+    return None
+
