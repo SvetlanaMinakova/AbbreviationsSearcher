@@ -2,6 +2,9 @@
 
 I am to lazy to search for abbreviations in my thesis by hand... So I do it using a script. Please, note, the script is not perfect. It merely helps with identifying abbreviations in your (.tex) files.
 
+#### Requirements
+python 3.x
+
 #### Example use
 $ python main.py -i ./input_examples/ --verbose
 
