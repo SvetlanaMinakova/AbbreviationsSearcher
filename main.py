@@ -2,8 +2,8 @@ import os
 import sys
 import argparse
 import traceback
-import glob
 import re
+import copy
 
 # local imports
 from Abbreviation import Abbreviation
@@ -28,6 +28,9 @@ def main():
     parser.add_argument('-o', metavar='--output', type=str, action='store', default="./output/abbr.json",
                         help='path to output JSON file with abbreviations')
 
+    parser.add_argument('-e', metavar='--extension', type=str, action='store', default='tex',
+                        help='file extension. Only files of this extension will be searched')
+
     # general flags
     parser.add_argument('--verbose', help="print details", action="store_true", default=False)
 
@@ -36,10 +39,11 @@ def main():
 
     input_path = args.i
     output_path = args.o
+    extension = args.e
     verbose = args.verbose
 
     try:
-        input_file_paths = get_input_file_paths(input_path, ["tex"], verbose)
+        input_file_paths = get_input_file_paths(input_path, [extension], verbose)
         abbreviations = find_abbreviations_in_files_list(input_file_paths, verbose)
         abbreviations_to_json(abbreviations, output_path)
         if verbose:
@@ -95,56 +99,6 @@ def find_abbreviations_in_file(file_path, verbose):
     return abbreviations
 
 
-# OLD
-"""
-def find_abbreviations_in_file(file_path, verbose):
-
-    Visit an input file and try to find abbreviations there
-    :param file_path: path to input file
-    :param verbose: flag. If True, print details
-    :return: abbreviations: list of  abbreviations found in the input file
-    if verbose:
-        print("Opening", file_path)
-    abbreviations = []
-    lines_with_two_round_brackets = get_lines_with_two_brackets(file_path)
-    lines_with_two_round_brackets_ids = [key for key in lines_with_two_round_brackets.keys()]
-    # print("  - lines with two brackets:", lines_with_two_round_brackets_ids)
-    for line_id in lines_with_two_round_brackets_ids:
-        line_abbreviations = try_find_abbreviations_in_line(lines_with_two_round_brackets[line_id])
-        for line_abbreviation in line_abbreviations:
-            line_abbreviation.file = file_path
-            line_abbreviation.line = line_id
-            if line_abbreviation not in abbreviations:
-                abbreviations.append(line_abbreviation)
-    if verbose:
-        if len(abbreviations) > 0:
-            print("   abbreviations found:", [str(abbreviation) for abbreviation in abbreviations])
-    return abbreviations
-"""
-
-
-def get_lines_with_two_brackets(file_path):
-    """
-    Get text lines that have both round brackets: '(' and ')'
-    :param file_path: path to the text file
-    :return: lines that have at least one bracket
-            dictionary with key = line_id, value = line
-    """
-    lines_with_brackets = {}
-
-    with open(file_path) as fp:
-        line = fp.readline()
-        line_id = 1
-        if has_two_round_brackets(line):
-            lines_with_brackets[line_id] = line
-        while line:
-            line = fp.readline()
-            line_id += 1
-            if has_two_round_brackets(line):
-                lines_with_brackets[line_id] = line
-    return lines_with_brackets
-
-
 def get_file_as_lines(file_path):
     """
     Get file represented as an array of lines
@@ -191,40 +145,118 @@ def find_long_notice(line: str, prev_line: str, short_notice: str):
     """
     # find position of short notice in the line
     short_notice_pos = line.find(short_notice)
-    # print("position of", short_notice, "in", line, "is", short_notice_pos)
 
-    # try to find long notice in the same line with abbreviation
+    short_notice_letters = [char for char in short_notice]
+    # small "s" in the end of abbreviation stands for multiple objects
+    if short_notice_letters[-1] == "s":
+        short_notice_letters.pop(-1)
+
+    print("short notice letters: ", short_notice_letters)
+
+    # the long notice should be located before the abbreviation
     substring_to_search = line[:short_notice_pos]
-    long_notice = search_substring_for_long_notice(substring_to_search, short_notice)
+    # also, sometimes (part of) the long notice can be located in the previous line
+    substring_to_search = prev_line + substring_to_search
 
-    # try to find long notice in the previous line
-    if long_notice is None:
-        substring_to_search = prev_line
-        long_notice = search_substring_for_long_notice(substring_to_search, short_notice)
+    print("substring_to_search", substring_to_search)
+    long_notice = search_substring_for_long_notice(substring_to_search, short_notice_letters)
 
     return long_notice
 
 
-def search_substring_for_long_notice(substring: str, short_notice: str):
-    """
+def search_substring_for_long_notice(substring: str, short_notice_letters: []):
+    """"
     Search substring of text for long notice of abbreviation, e.g., British Broadcasting Corporation
     :param substring: substring to search
-    :param short_notice: short notice of abbreviation, e.g., BBC
+    :param short_notice_letters: short notice of abbreviation, e.g., BBC, represented as an array of letters
     :return: long notice of abbreviation (e.g., British Broadcasting Corporation) if one is found
         and None otherwise
     """
-    # print("search for", short_notice, "in", substring)
-    short_notice_letters_reversed = [char for char in short_notice]
+
+    # we search string word-by word
+    string_as_words = substring.split(" ")
+
+    # we start search from the last letter/word
+    # thus, we traverse the short-notice letters
+    # and obtain respective long-notice words in reverse order
+    long_notice_words_reverse = []
+
+    # current letter position (last letter in the short notice)
+    letter_id = len(short_notice_letters) - 1
+
+    # current word position (last word in the substring)
+    word_id = len(string_as_words) - 1
+
+    # the search stops when:
+    # 1) all letters were traversed OR
+    # 2) all substring was traversed OR
+    # 3) the long notice cannot be found in the substring
+    long_notice_is_in_substring = True
+    while letter_id >= 0 and word_id >= 0 and long_notice_is_in_substring:
+        cur_letter = short_notice_letters[letter_id]
+        cur_word = string_as_words[word_id]
+
+        # skip "words" that are punctuation
+        while cur_word in ["(", ")", ".", ",", ";"] and word_id > 0:
+            word_id -= 1
+            cur_word = string_as_words[word_id]
+
+        # print("CUR LETTER: ", short_notice_letters[letter_id], "CUR WORD: ", string_as_words[word_id])
+        # check if this still looks like the long notice
+        if not cur_word.startswith(cur_letter) and not cur_word.startswith(cur_letter.lower()):
+            long_notice_is_in_substring = False
+
+        # if hyphen is present in the word, the word
+        # corresponds to several letters in the abbreviation
+        if "-" in cur_word:
+            cur_word_parts = cur_word.split("-")
+            sub_words_cnt = len(cur_word_parts)
+            long_notice_words_reverse.append(cur_word)
+            word_id -= sub_words_cnt
+            letter_id -= sub_words_cnt
+        # otherwise, the word corresponds to only
+        # one letter in the abbreviation
+        else:
+            long_notice_words_reverse.append(cur_word)
+            word_id -= 1
+            letter_id -= 1
+
+    if not long_notice_is_in_substring:
+        return None
+
+    long_notice = form_long_notice_from_reversed_words_list(long_notice_words_reverse)
+    return long_notice
+
+
+def form_long_notice_from_reversed_words_list(long_notice_words_reverse):
+    # print("long_notice_words_reverse", long_notice_words_reverse)
+    long_notice = ""
+    long_notice_words_reverse.reverse()
+    for word in long_notice_words_reverse:
+        long_notice += word + " "
+    long_notice.strip()
+    return long_notice
+
+
+# OLD
+"""
+def search_substring_for_long_notice(substring: str, short_notice_letters: []):
+
+    Search substring of text for long notice of abbreviation, e.g., British Broadcasting Corporation
+    :param substring: substring to search
+    :param short_notice_letters: short notice of abbreviation, e.g., BBC, represented as an array of letters
+    :return: long notice of abbreviation (e.g., British Broadcasting Corporation) if one is found
+        and None otherwise
+
+    # we start search from the last letter/word
+    short_notice_letters_reversed = copy.deepcopy(short_notice_letters)
     short_notice_letters_reversed.reverse()
-    # small "s" in the end of abbreviation stands for multiple objects
-    if short_notice_letters_reversed[0] == "s":
-        short_notice_letters_reversed.pop(0)
-    # print("search for words starting with", short_notice_letters_reversed)
 
     long_notice_words_reverse = []
     # search positions in substring
     start_pos = 0
     end_pos = len(substring) - 1
+
     for letter in short_notice_letters_reversed:
         word, word_pos_in_string = find_word_and_its_pos_in_string(substring, letter, start_pos, end_pos)
         # if at least one word was not found, we consider the long notice not found
@@ -241,18 +273,16 @@ def search_substring_for_long_notice(substring: str, short_notice: str):
     long_notice.strip()
 
     return long_notice
+ """
 
 
 def find_word_and_its_pos_in_string(string, first_letter, start_pos, end_pos):
-    # print("search for word starting with", first_letter, "in", string[start_pos:end_pos])
     string_as_words = string.split(" ")
     word_id = len(string_as_words) - 1
-    # print("words in string: ", string_as_words)
 
     word_pos_in_str = end_pos
     while word_id > 0:
         cur_word = string_as_words[word_id]
-        # print("cur_word", cur_word)
         word_pos_in_str -= len(cur_word)
         if cur_word.startswith(first_letter) or cur_word.startswith(first_letter.lower()):
             return cur_word, word_pos_in_str
