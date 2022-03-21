@@ -8,11 +8,12 @@ import re
 # local imports
 from Abbreviation import Abbreviation
 from json_converters.abbreviations_to_json import abbreviations_to_json
+from input_file_worker import get_input_file_paths
 
 
 def main():
     # import current directory and it's subdirectories into system path for the current console
-    # this would allow to import project modules without adding the project to the PYTHONPATH
+    # this would allow importing project modules without adding the project to the PYTHONPATH
     this_dir = os.path.dirname(__file__)
     sys.path.append(this_dir)
 
@@ -24,7 +25,7 @@ def main():
     parser.add_argument('-i', metavar='--input', type=str, action='store', required=True,
                         help='path to input file or input files directory')
 
-    parser.add_argument('-o', metavar='--output', type=str, action='store', default="./abbr.json",
+    parser.add_argument('-o', metavar='--output', type=str, action='store', default="./output/abbr.json",
                         help='path to output JSON file with abbreviations')
 
     # general flags
@@ -38,7 +39,7 @@ def main():
     verbose = args.verbose
 
     try:
-        input_file_paths = get_input_file_paths(input_path, verbose)
+        input_file_paths = get_input_file_paths(input_path, ["tex"], verbose)
         abbreviations = find_abbreviations_in_files_list(input_file_paths, verbose)
         abbreviations_to_json(abbreviations, output_path)
         if verbose:
@@ -48,63 +49,6 @@ def main():
     except Exception as e:
         print("Abbreviations search error: " + str(e))
         traceback.print_tb(e.__traceback__)
-
-
-def get_input_file_paths(input_path, verbose=False):
-    """
-    Get path to all input files to traverse
-    :param input_path: path to input .tex file or directory with .tex files
-    :param verbose: flag. If True, print details
-    :return: list of files to traverse
-    """
-    # input is a file
-    if is_file(input_path):
-        if has_matching_extension(input_path, ["tex"]):
-            input_file_paths = [input_path]
-            print_or_skip("Input registered: input is a tex file", verbose)
-            return input_file_paths
-        else:
-            raise Exception("Incorrect input: latex (.tex) file was expected")
-
-    # input is a directory
-    if is_directory(input_path):
-        input_file_paths = find_path_to_dir_files_recursively(input_path, ["tex"])
-        print_or_skip("Input registered: input is a directory with " +
-                      str(len(input_file_paths)) + " .tex files", verbose)
-        return input_file_paths
-
-    # input is not a file or directory
-    raise Exception("Wrong input: existing file or files directory is expected.")
-
-
-def is_directory(path):
-    return os.path.isdir(path)
-
-
-def is_file(path):
-    return os.path.isfile(path)
-
-
-def find_path_to_dir_files_recursively(input_dir, file_extensions=None):
-    file_paths = []
-    # add file paths without filtering
-    if file_extensions is None:
-        for f in glob.glob(str(os.path.join(input_dir, "**")), recursive=True):
-            file_paths.append(f)
-
-    # add file paths only after filtering
-    else:
-        for f in glob.glob(str(os.path.join(input_dir, "**")), recursive=True):
-            if has_matching_extension(f, file_extensions):
-                file_paths.append(f)
-    return file_paths
-
-
-def has_matching_extension(file_path, extensions):
-    for extension in extensions:
-        if file_path.endswith("." + extension):
-            return True
-    return False
 
 
 def find_abbreviations_in_files_list(file_paths, verbose):
@@ -133,6 +77,35 @@ def find_abbreviations_in_file(file_path, verbose):
     if verbose:
         print("Opening", file_path)
     abbreviations = []
+    file_as_lines = get_file_as_lines(file_path)
+    line_id = 0
+    for line in file_as_lines:
+        if has_two_round_brackets(line):
+            prev_line = file_as_lines[line_id-1] if line_id > 0 else ""
+            line_abbreviations = try_find_abbreviations_in_line(line, prev_line)
+            for line_abbreviation in line_abbreviations:
+                line_abbreviation.file = file_path
+                line_abbreviation.line = line_id
+                if line_abbreviation not in abbreviations:
+                    abbreviations.append(line_abbreviation)
+        line_id += 1
+    if verbose:
+        if len(abbreviations) > 0:
+            print("   abbreviations found:", [str(abbreviation) for abbreviation in abbreviations])
+    return abbreviations
+
+
+# OLD
+"""
+def find_abbreviations_in_file(file_path, verbose):
+
+    Visit an input file and try to find abbreviations there
+    :param file_path: path to input file
+    :param verbose: flag. If True, print details
+    :return: abbreviations: list of  abbreviations found in the input file
+    if verbose:
+        print("Opening", file_path)
+    abbreviations = []
     lines_with_two_round_brackets = get_lines_with_two_brackets(file_path)
     lines_with_two_round_brackets_ids = [key for key in lines_with_two_round_brackets.keys()]
     # print("  - lines with two brackets:", lines_with_two_round_brackets_ids)
@@ -147,6 +120,7 @@ def find_abbreviations_in_file(file_path, verbose):
         if len(abbreviations) > 0:
             print("   abbreviations found:", [str(abbreviation) for abbreviation in abbreviations])
     return abbreviations
+"""
 
 
 def get_lines_with_two_brackets(file_path):
@@ -161,6 +135,8 @@ def get_lines_with_two_brackets(file_path):
     with open(file_path) as fp:
         line = fp.readline()
         line_id = 1
+        if has_two_round_brackets(line):
+            lines_with_brackets[line_id] = line
         while line:
             line = fp.readline()
             line_id += 1
@@ -169,10 +145,28 @@ def get_lines_with_two_brackets(file_path):
     return lines_with_brackets
 
 
-def try_find_abbreviations_in_line(line):
+def get_file_as_lines(file_path):
+    """
+    Get file represented as an array of lines
+    :param file_path: path to file
+    :return: file represented as an array of lines
+    """
+    lines = []
+
+    with open(file_path) as fp:
+        line = fp.readline()
+        lines.append(line)
+        while line:
+            line = fp.readline()
+            lines.append(line)
+    return lines
+
+
+def try_find_abbreviations_in_line(line, prev_line):
     """
     Try to find abbreviations in a line
-    :param line: line of a text
+    :param line: line of text that may contain abbreviations
+    :param prev_line: line, previous to current line (if available)
     :return: list of abbreviations found in the text line
     """
     abbreviations = []
@@ -180,8 +174,91 @@ def try_find_abbreviations_in_line(line):
     for substring in substrings_in_round_brackets:
         if is_abbreviation(substring):
             abbreviation = Abbreviation(substring)
+            long_notice = find_long_notice(line, prev_line, substring)
+            if long_notice is not None:
+                abbreviation.long = long_notice
             abbreviations.append(abbreviation) # substring
     return abbreviations
+
+
+def find_long_notice(line: str, prev_line: str, short_notice: str):
+    """
+    Find long notice for the abbreviation
+    :param line: text line with abbreviation
+    :param prev_line: line, previous to the text line with abbreviation (if available)
+    :param short_notice: short notice of abbreviation, e.g., BBC
+    :return: long notice of abbreviation, e.g., British Broadcasting Corporation
+    """
+    # find position of short notice in the line
+    short_notice_pos = line.find(short_notice)
+    # print("position of", short_notice, "in", line, "is", short_notice_pos)
+
+    # try to find long notice in the same line with abbreviation
+    substring_to_search = line[:short_notice_pos]
+    long_notice = search_substring_for_long_notice(substring_to_search, short_notice)
+
+    # try to find long notice in the previous line
+    if long_notice is None:
+        substring_to_search = prev_line
+        long_notice = search_substring_for_long_notice(substring_to_search, short_notice)
+
+    return long_notice
+
+
+def search_substring_for_long_notice(substring: str, short_notice: str):
+    """
+    Search substring of text for long notice of abbreviation, e.g., British Broadcasting Corporation
+    :param substring: substring to search
+    :param short_notice: short notice of abbreviation, e.g., BBC
+    :return: long notice of abbreviation (e.g., British Broadcasting Corporation) if one is found
+        and None otherwise
+    """
+    # print("search for", short_notice, "in", substring)
+    short_notice_letters_reversed = [char for char in short_notice]
+    short_notice_letters_reversed.reverse()
+    # small "s" in the end of abbreviation stands for multiple objects
+    if short_notice_letters_reversed[0] == "s":
+        short_notice_letters_reversed.pop(0)
+    # print("search for words starting with", short_notice_letters_reversed)
+
+    long_notice_words_reverse = []
+    # search positions in substring
+    start_pos = 0
+    end_pos = len(substring) - 1
+    for letter in short_notice_letters_reversed:
+        word, word_pos_in_string = find_word_and_its_pos_in_string(substring, letter, start_pos, end_pos)
+        # if at least one word was not found, we consider the long notice not found
+        if word is None:
+            return None
+
+        long_notice_words_reverse.append(word)
+        end_pos = word_pos_in_string
+
+    long_notice = ""
+    long_notice_words_reverse.reverse()
+    for word in long_notice_words_reverse:
+        long_notice += word + " "
+    long_notice.strip()
+
+    return long_notice
+
+
+def find_word_and_its_pos_in_string(string, first_letter, start_pos, end_pos):
+    # print("search for word starting with", first_letter, "in", string[start_pos:end_pos])
+    string_as_words = string.split(" ")
+    word_id = len(string_as_words) - 1
+    # print("words in string: ", string_as_words)
+
+    word_pos_in_str = end_pos
+    while word_id > 0:
+        cur_word = string_as_words[word_id]
+        # print("cur_word", cur_word)
+        word_pos_in_str -= len(cur_word)
+        if cur_word.startswith(first_letter) or cur_word.startswith(first_letter.lower()):
+            return cur_word, word_pos_in_str
+        word_id -= 1
+
+    return None, -1
 
 
 def is_abbreviation(substrings_in_round_brackets):
@@ -282,11 +359,6 @@ def has_closing_bracket(line):
     :return: true, if a line of text has a closing bracket, i.e., ')'
     """
     return ")" in line
-
-
-def print_or_skip(message, verbose):
-    if verbose:
-        print(message)
 
 
 if __name__ == "__main__":
