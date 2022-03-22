@@ -5,6 +5,10 @@ I am to lazy to search for abbreviations in my thesis by hand... So I do it usin
 #### Requirements
 python 3.x
 
+#### Background
+
+Script expects the (first mention of) the abbreviation to match pattern *long notice (short notice in capital letters)*, e.g., *central processing unit (CPU)*.
+
 #### Example use
 $ python main.py -i ./input_examples/ --verbose
 
